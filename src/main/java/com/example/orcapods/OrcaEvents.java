@@ -13,10 +13,17 @@ import net.minecraftforge.registries.ForgeRegistries;
 
 public class OrcaEvents {
     public static final ResourceLocation ORCA_ID = new ResourceLocation("alexsmobs", "orca");
+    public static final ResourceLocation CACHALOT_ID = new ResourceLocation("alexsmobs", "cachalot_whale");
+
+    /** Orcas attack a cachalot whale only if their pod has at least this many members. Set to 1 to remove the limit. */
+    public static final int MIN_PACK_FOR_WHALE = 2;
 
     public static boolean isOrca(Entity e) {
-        ResourceLocation key = ForgeRegistries.ENTITY_TYPES.getKey(e.getType());
-        return ORCA_ID.equals(key);
+        return ORCA_ID.equals(ForgeRegistries.ENTITY_TYPES.getKey(e.getType()));
+    }
+
+    public static boolean isCachalot(Entity e) {
+        return CACHALOT_ID.equals(ForgeRegistries.ENTITY_TYPES.getKey(e.getType()));
     }
 
     // Goals are not saved, so we add them every time an orca enters the world.
@@ -25,22 +32,25 @@ public class OrcaEvents {
         if (event.getLevel().isClientSide()) return;
         if (event.getEntity() instanceof Mob mob && isOrca(mob)) {
             mob.goalSelector.addGoal(2, new OrcaHuntGoal(mob));
-            mob.goalSelector.addGoal(3, new PodFollowGoal(mob));
+            mob.goalSelector.addGoal(3, new PodSpacingGoal(mob));
+            mob.goalSelector.addGoal(4, new PodFollowGoal(mob));
             mob.targetSelector.addGoal(2,
                     new NearestAttackableTargetGoal<>(mob, AbstractFish.class, 10, true, false, f -> f.isInWater()));
+            mob.targetSelector.addGoal(3,
+                    new NearestAttackableTargetGoal<>(mob, Mob.class, 10, true, false,
+                            e -> isCachalot(e) && PodUtil.getPod(mob).size() >= MIN_PACK_FOR_WHALE));
         }
     }
 
-    // When an orca is hurt, the whole pod goes after the attacker.
+    // When an orca is hurt, its whole pod (max 5) goes after the attacker.
     @SubscribeEvent
     public void onHurt(LivingHurtEvent event) {
         LivingEntity victim = event.getEntity();
-        if (victim.level().isClientSide() || !isOrca(victim)) return;
+        if (victim.level().isClientSide() || !(victim instanceof Mob victimMob) || !isOrca(victim)) return;
         Entity src = event.getSource().getEntity();
         if (src instanceof LivingEntity attacker && attacker.isAlive() && !isOrca(attacker)) {
-            for (Mob m : victim.level().getEntitiesOfClass(Mob.class,
-                    victim.getBoundingBox().inflate(32), o -> o != victim && isOrca(o))) {
-                m.setTarget(attacker);
+            for (Mob m : PodUtil.getPod(victimMob)) {
+                if (m != victim) m.setTarget(attacker);
             }
         }
     }
